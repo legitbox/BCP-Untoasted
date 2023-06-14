@@ -36,6 +36,11 @@ public:
 	std::vector<PlayerData> players;
 };
 
+class ConfigData {
+public:
+	bool explosionsDisabled;
+};
+
 void* getHookPoint(int offset)
 {
 	uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandle(nullptr));
@@ -125,6 +130,7 @@ void pushVector(std::vector<T> &initialVector, std::vector<T> &nextVector) {
 
 namespace ClaimPilotStorage {
 	StorageData storage;
+	ConfigData config;
 }
 
 std::vector<ClaimData> getAllClaims() {
@@ -183,7 +189,7 @@ bool onSetBlock(BlockSource* region, BlockPos* pos, Block* block, int uInt, void
 		return BSSetBlock(region, pos, block, uInt, actorSyncMessage, placer);
 	}
 
-	if (ExplosionInfo::isActive) { // Activated during explosion
+	if (ExplosionInfo::isActive && ClaimPilotStorage::config.explosionsDisabled) { // Activated during explosion
 		ClaimData* claim = getClaimAtPos(pos, region->getDimensionId()->value);
 		if (claim == nullptr) {
 			return BSSetBlock(region, pos, block, uInt, actorSyncMessage, placer);
@@ -226,6 +232,10 @@ extern "C" {
 
 	__declspec(dllexport) void updateStorage(StorageData storage) {
 		ClaimPilotStorage::storage = storage;
+	}
+
+	__declspec(dllexport) void updateConfig(ConfigData config) {
+		ClaimPilotStorage::config = config;
 	}
 
 	__declspec(dllexport) void setSetBlockHookEnabled(bool value) {
