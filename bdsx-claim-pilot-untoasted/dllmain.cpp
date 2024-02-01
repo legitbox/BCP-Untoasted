@@ -106,6 +106,8 @@ using BlockSource_getDimensionId = AutomaticId*(*)(BlockSource*, AutomaticId*);
 
 using FireBlock_tick = void(*)(Block*, BlockSource*, BlockPos*, void*);
 
+using PortalForcer_canPortalReplaceBlock = bool(*)(BlockSource*, BlockPos*);
+
 Block_getName BGetName;
 
 BlockSource_getDimensionId BSGetDimensionId;
@@ -114,6 +116,9 @@ BlockSource_setBlock BSSetBlock = nullptr;
 
 FireBlock_tick FBTickTarget;
 FireBlock_tick FBTick = nullptr;
+
+PortalForcer_canPortalReplaceBlock PFCprbTarget;
+PortalForcer_canPortalReplaceBlock PFCprb = nullptr;
 
 bool isPointInBox(BlockPos* point, Vec3* cornerOne, Vec3* cornerTwo) {
 	return point->x >= cornerOne->x && point->x <= cornerTwo->x &&
@@ -144,6 +149,17 @@ std::vector<ClaimData> getAllClaims() {
 	}
 
 	return claims;
+}
+
+ClaimData* getClaimById(std::string id) {
+	std::vector<ClaimData> claims = getAllClaims();
+	for (ClaimData data : claims) {
+		if (data.claimId == id) {
+			return &data;
+		}
+	}
+
+	return nullptr;
 }
 
 ClaimData* getClaimAtPos(BlockPos* point, int32_t dimensionId) {
@@ -210,24 +226,36 @@ void onFireBlockTick(Block* block, BlockSource* region, BlockPos* pos, void* ran
 	FireBlockTickInfo::fromMayPlace = false;
 }
 
+bool onCheckPortalPlacement(BlockSource* region, BlockPos* pos) {
+	ClaimData* claim = getClaimAtPos(pos, region->getDimensionId()->value);
+	if (claim == nullptr) {
+		return PFCprb(region, pos);
+	}
+
+	return false;
+}
+
 AutomaticId* BlockSource::getDimensionId() {
 	AutomaticId test;
 	return BSGetDimensionId(this, &test);
 }
 
 extern "C" {
-	__declspec(dllexport) void init(int BSSetBlockOffset, int FBTickOffset, int BGetNameOffset, int BSGetDimensionIdOffset) {
+	__declspec(dllexport) void init(int BSSetBlockOffset, int FBTickOffset, int BGetNameOffset, int BSGetDimensionIdOffset, int PFCprbOffset) {
 		BSSetBlockTarget = (BlockSource_setBlock)getHookPoint(BSSetBlockOffset);
 		BGetName = (Block_getName)getHookPoint(BGetNameOffset);
 		BSGetDimensionId = (BlockSource_getDimensionId)getHookPoint(BSGetDimensionIdOffset);
 		FBTickTarget = (FireBlock_tick)getHookPoint(FBTickOffset);
+		PFCprbTarget = (PortalForcer_canPortalReplaceBlock)getHookPoint(PFCprbOffset);
 		
 		MH_Initialize();
 		MH_CreateHook(BSSetBlockTarget, &onSetBlock, reinterpret_cast<LPVOID*>(&BSSetBlock));
 		MH_CreateHook(FBTickTarget, &onFireBlockTick, reinterpret_cast<LPVOID*>(&FBTick));
+		MH_CreateHook(PFCprbTarget, &onCheckPortalPlacement, reinterpret_cast<LPVOID*>(&PFCprb));
 
 		MH_EnableHook(FBTickTarget);
 		MH_EnableHook(BSSetBlockTarget);
+		MH_EnableHook(PFCprbTarget);
 	}
 
 	__declspec(dllexport) void updateStorage(StorageData storage) {
@@ -245,5 +273,28 @@ extern "C" {
 		else {
 			ExplosionInfo::isActive = false;
 		}
+	}
+
+	__declspec(dllexport) bool checkIfBoxOverlapsAnyClaim(Vec3 cornerOne, Vec3 cornerEight, int dimensionId) {
+		std::vector<ClaimData> claims = getAllClaims();
+
+		// Get box sides
+		int length = cornerEight.x - cornerOne.x;
+		int width = cornerEight.z - cornerOne.z;
+		int height = cornerEight.y - cornerOne.y;
+
+		for (int x = 0; x <= length; x++) {
+			for (int y = 0; y <= height; y++) {
+				for (int z = 0; z <= width; z++) {
+					BlockPos pos(cornerOne.x + x, cornerOne.y + y, cornerOne.z + z);
+					ClaimData* claimAtBlock = getClaimAtPos(&pos, dimensionId);
+					if (claimAtBlock != nullptr) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 }
